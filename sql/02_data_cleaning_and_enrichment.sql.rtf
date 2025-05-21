@@ -1,0 +1,113 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2821
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww25200\viewh14100\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 -- ========================================\
+-- \uc0\u55357 \u56550  Starbucks Rewards Data Pipeline - Part 2\
+-- Data Cleaning and Feature Engineering\
+-- Author: Oliver Xiao\
+-- Date: May 2025\
+-- ========================================\
+\
+-- ----------------------------------------\
+-- 2a: Replace NULL values in profile_clean\
+-- ----------------------------------------\
+\
+-- Replace null gender with 'O' (Other)\
+UPDATE profile_clean\
+SET gender = 'O'\
+WHERE gender IS NULL;\
+\
+-- Replace null income with 0\
+UPDATE profile_clean\
+SET income = 0\
+WHERE income IS NULL;\
+\
+-- ----------------------------------------\
+-- 2b: Create 'age_group' column and populate\
+-- ----------------------------------------\
+\
+ALTER TABLE profile_clean\
+ADD COLUMN age_group VARCHAR;\
+\
+UPDATE profile_clean\
+SET age_group = CASE\
+    WHEN age = 118 THEN 'Unknown'\
+    WHEN age < 20 THEN 'Teenagers'\
+    WHEN age >= 20 AND age < 30 THEN '20s'\
+    WHEN age >= 30 AND age < 40 THEN '30s'\
+    WHEN age >= 40 AND age < 50 THEN '40s'\
+    WHEN age >= 50 AND age < 60 THEN '50s'\
+    WHEN age >= 60 THEN '60s+'\
+    ELSE 'Unknown'\
+END;\
+\
+-- ----------------------------------------\
+-- 2c: Add channel indicators to portfolio_clean\
+-- ----------------------------------------\
+\
+ALTER TABLE portfolio_clean\
+ADD (\
+    channel_email BOOLEAN,\
+    channel_mobile BOOLEAN,\
+    channel_social BOOLEAN,\
+    channel_web BOOLEAN\
+);\
+\
+-- Populate channel flags based on array contents\
+UPDATE portfolio_clean\
+SET \
+    channel_email  = ARRAY_CONTAINS('email'::VARIANT, channels),\
+    channel_mobile = ARRAY_CONTAINS('mobile'::VARIANT, channels),\
+    channel_social = ARRAY_CONTAINS('social'::VARIANT, channels),\
+    channel_web    = ARRAY_CONTAINS('web'::VARIANT, channels);\
+\
+-- ----------------------------------------\
+-- 2d: Merge all cleaned tables into a single dataset\
+-- ----------------------------------------\
+\
+CREATE OR REPLACE TABLE merged_data AS\
+SELECT \
+    t1.person                AS person_id,\
+    t1.value,\
+    t1.event,\
+    t1.time,\
+    t2.age,\
+    t2.gender,\
+    t2.income,\
+    t2.became_member_on,\
+    t2.age_group,\
+    t3.offer_type,\
+    t3.difficulty,\
+    t3.reward,\
+    t3.duration,\
+    t3.channels,\
+    t3.channel_email,\
+    t3.channel_mobile,\
+    t3.channel_social,\
+    t3.channel_web\
+FROM transcript_clean AS t1\
+LEFT JOIN profile_clean   AS t2 ON t1.person = t2.id\
+LEFT JOIN portfolio_clean AS t3 ON t1.value:"offer id" = t3.id;\
+\
+-- ----------------------------------------\
+-- 2e: Count total rows before filtering\
+-- ----------------------------------------\
+SELECT COUNT(*) AS total_rows_before_filter FROM merged_data;\
+-- Expected Result: 306534\
+\
+-- ----------------------------------------\
+-- 2f: Remove records with 'informational' offers\
+-- ----------------------------------------\
+DELETE FROM merged_data\
+WHERE offer_type = 'informational';\
+\
+-- ----------------------------------------\
+-- 2g: Count rows after filtering\
+-- ----------------------------------------\
+SELECT COUNT(*) AS total_rows_after_filter FROM merged_data;\
+-- Expected Result: 280468\
+}

@@ -1,0 +1,121 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2821
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fnil\fcharset0 AppleColorEmoji;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww25780\viewh14680\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 -- ========================================\
+-- 
+\f1 \uc0\u55357 \u56550 
+\f0  Starbucks Rewards Data Pipeline - Part 1\
+-- Data Ingestion and Transformation\
+-- Author: Oliver Xiao\
+-- Date: May 2025\
+-- ========================================\
+\
+-- Create and use database\
+CREATE DATABASE IF NOT EXISTS starbucks_rewards_db;\
+USE DATABASE starbucks_rewards_db;\
+\
+-- Create external stage for raw data (Azure Blob Storage)\
+-- Note: SAS token redacted for public sharing\
+CREATE OR REPLACE STAGE stage_raw_data\
+    URL = 'azure://uts2024.blob.core.windows.net/starbucks-data'\
+    CREDENTIALS = (AZURE_SAS_TOKEN = '***REDACTED***');\
+\
+-- Optional: Preview files in external stage\
+LIST @stage_raw_data;\
+\
+-- ----------------------------------------\
+-- Ingest JSON files as external tables\
+-- ----------------------------------------\
+\
+CREATE OR REPLACE EXTERNAL TABLE ext_portfolio\
+    WITH LOCATION = @stage_raw_data\
+    FILE_FORMAT = (TYPE = 'JSON')\
+    PATTERN = '.*portfolio[.]json';\
+\
+CREATE OR REPLACE EXTERNAL TABLE ext_profile\
+    WITH LOCATION = @stage_raw_data\
+    FILE_FORMAT = (TYPE = 'JSON')\
+    PATTERN = '.*profile[.]json';\
+\
+CREATE OR REPLACE EXTERNAL TABLE ext_transcript\
+    WITH LOCATION = @stage_raw_data\
+    FILE_FORMAT = (TYPE = 'JSON')\
+    PATTERN = '.*transcript[.]json';\
+\
+-- Preview raw data (optional)\
+SELECT * FROM ext_portfolio;\
+SELECT * FROM ext_profile;\
+SELECT * FROM ext_transcript;\
+\
+-- ----------------------------------------\
+-- Create structured tables (Silver Layer)\
+-- ----------------------------------------\
+\
+CREATE OR REPLACE TABLE portfolio_clean (\
+    id STRING,\
+    offer_type STRING,\
+    difficulty INT,\
+    reward INT,\
+    duration INT,\
+    channels ARRAY\
+);\
+\
+CREATE OR REPLACE TABLE profile_clean (\
+    id STRING,\
+    age INT,\
+    gender STRING,\
+    income FLOAT,\
+    became_member_on DATE\
+);\
+\
+CREATE OR REPLACE TABLE transcript_clean (\
+    event STRING,\
+    person STRING,\
+    time INT,\
+    value VARIANT\
+);\
+\
+-- ----------------------------------------\
+-- Transform and load data from external tables\
+-- ----------------------------------------\
+\
+INSERT INTO portfolio_clean\
+SELECT\
+    value:id::STRING           AS id,\
+    value:offer_type::STRING   AS offer_type,\
+    value:difficulty::INT      AS difficulty,\
+    value:reward::INT          AS reward,\
+    value:duration::INT        AS duration,\
+    value:channels::ARRAY      AS channels\
+FROM ext_portfolio;\
+\
+INSERT INTO profile_clean\
+SELECT\
+    value:id::STRING                            AS id,\
+    value:age::INT                              AS age,\
+    value:gender::STRING                        AS gender,\
+    value:income::FLOAT                         AS income,\
+    TO_DATE(value:became_member_on::STRING, 'YYYYMMDD') AS became_member_on\
+FROM ext_profile;\
+\
+INSERT INTO transcript_clean\
+SELECT\
+    value:event::STRING     AS event,\
+    value:person::STRING    AS person,\
+    value:time::INT         AS time,\
+    value:"value"::VARIANT  AS value\
+FROM ext_transcript;\
+\
+-- ----------------------------------------\
+-- Row counts for validation\
+-- ----------------------------------------\
+SELECT COUNT(*) AS row_count FROM portfolio_clean;\
+SELECT COUNT(*) AS row_count FROM profile_clean;\
+SELECT COUNT(*) AS row_count FROM transcript_clean;\
+\
+-- Optional data check\
+SELECT COUNT(*) FROM portfolio_clean WHERE reward IS NOT NULL;}
